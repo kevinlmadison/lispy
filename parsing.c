@@ -26,6 +26,7 @@ void add_history(char* unused) {}
 #include <editline/history.h>
 #endif
 
+
 typedef struct lval {
     int type;
     long num;
@@ -38,6 +39,10 @@ typedef struct lval {
 } lval;
 
 enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR };
+
+lval* lval_eval(lval*v); // Forward declaration
+void lval_print(lval* v); // Forward declaration;
+lval* builtin_op(lval* a, char* op);
 
 lval* lval_num(long x) {
     lval* v = malloc(sizeof(lval));
@@ -118,7 +123,6 @@ lval* lval_read(mpc_ast_t* t) {
 }
 
 
-void lval_print(lval* v); // Forward declaration;
 
 void lval_expr_print(lval* v, char open, char close) {
     putchar(open);
@@ -159,7 +163,6 @@ lval* lval_take(lval* v, int i) {
     return x;
 }
 
-lval* lval_eval(lval*v); // Forward declaration
 
 lval* lval_eval_sexpr(lval* v) {
     for (int i = 0; i < v->count; i++) {
@@ -188,6 +191,40 @@ lval* lval_eval_sexpr(lval* v) {
 lval* lval_eval(lval*v) {
     if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
     return v;
+}
+
+lval* builtin_op(lval* a, char* op) {
+    for (int i = 0; i < a->count; i++) {
+        if (a->cell[i]->type != LVAL_NUM) {
+            lval_del(a);
+            return lval_err("Cannot operate on non-number!");
+        }
+    }
+
+    lval* x = lval_pop(a, 0);
+    
+    if ((strcmp(op, "-") == 0) && a->count == 0) {
+        x->num = -x->num;
+    }
+
+    while (a->count > 0) {
+        lval* y = lval_pop(a, 0);
+
+        if(strcmp(op, "+") == 0) { x->num += y->num; }
+        if(strcmp(op, "-") == 0) { x->num -= y->num; }
+        if(strcmp(op, "*") == 0) { x->num *= y->num; }
+        if(strcmp(op, "/") == 0) { 
+            if(y->num == 0) {
+                lval_del(x); lval_del(y);
+                x = lval_err("Division by zero"); break;
+            }
+            x->num /= y->num;
+        }
+        
+        lval_del(y);
+    }
+
+    lval_del(a); return x;
 }
 
 
@@ -226,7 +263,7 @@ int main(int argc, char** argv) {
         /* Attempt to parse the user input */
         mpc_result_t r;
         if (mpc_parse("<stdin>", input, Lispy, &r)) {
-            lval* x = lval_read(r.output);
+            lval* x = lval_eval(lval_read(r.output));
             lval_println(x);
             lval_del(x);
         } else {
