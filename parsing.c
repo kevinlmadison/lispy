@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include "mpc.h"
 
+#define LASSERT(args, cond, err) \
+if (!(cond)) { lval_del(args); return lval_err(err); }
+
 #ifdef _WIN32
 #include <string.h>
 
@@ -239,6 +242,45 @@ lval* builtin_op(lval* a, char* op) {
     lval_del(a); return x;
 }
 
+lval* builtin_head(lval* a) {
+    LASSERT(a, a->count == 1, "Function 'head' passed too many arguments!");
+
+    LASSERT(a, a->cell[0]->type == LVAL_QEXPR, "Function 'head' passed incorrect type!");
+
+    LASSERT(a, a->cell[0]->count != 0, "Function 'head' passed {}!");
+
+    lval* v = lval_take(a, 0);
+
+    while(v->count > 1) { lval_del(lval_pop(v, 1)); }
+    return v;
+}
+
+lval* builtin_tail(lval* a) {
+    LASSERT(a, a->count == 1, "Function 'tail' passed too many arguments!");
+
+    LASSERT(a, a->cell[0]->type == LVAL_QEXPR, "Function 'tail' passed incorrect type!");
+
+    LASSERT(a, a->cell[0]->count != 0, "Function 'tail' passed {}!");
+
+    lval* v = lval_take(a, 0);
+
+    lval_del(lval_pop(v, 0)); 
+    return v;
+}
+
+lval* builtin_list(lval* a) {
+    a->type = LVAL_QEXPR;
+    return a;
+}
+
+lval* builtin_eval(lval* a) {
+    LASSERT(a, a->count == 1, "Function 'eval' passed too many arguments!");
+    LASSERT(a, a->cell[0]->type == LVAL_QEXPR, "Function 'eval' passed incorrect type!");
+
+    lval* x = lval_take(a, 0);
+    x->type = LVAL_SEXPR;
+    return lval_eval(x);
+}
 
 int main(int argc, char** argv) {
     /* Create some parsers */
