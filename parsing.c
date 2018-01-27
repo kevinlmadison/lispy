@@ -3,7 +3,7 @@
 #include "mpc.h"
 
 #define LASSERT(args, cond, err) \
-if (!(cond)) { lval_del(args); return lval_err(err); }
+  if (!(cond)) { lval_del(args); return lval_err(err); }
 
 #ifdef _WIN32
 #include <string.h>
@@ -28,23 +28,22 @@ void add_history(char* unused) {}
 #include <editline/history.h>
 #endif
 
+enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
 typedef struct lval {
     int type;
     long num;
-
     char* err;
     char* sym;
-
     int count;
     struct lval** cell;
 } lval;
 
-enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
 lval* lval_eval(lval*v); // Forward declaration
 void lval_print(lval* v); // Forward declaration;
 lval* builtin_op(lval* a, char* op);
+lval* builtin(lval* a, char* func);
 
 lval* lval_qexpr(void) {
     lval* v = malloc(sizeof(lval));
@@ -121,8 +120,8 @@ lval* lval_read(mpc_ast_t* t) {
 
     lval* x = NULL;
     if (strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
-    if (strcmp(t->tag, "sexpr"))  { x = lval_sexpr(); }
-    if (strcmp(t->tag, "qexpr"))  { x = lval_qexpr(); }
+    if (strstr(t->tag, "sexpr"))  { x = lval_sexpr(); }
+    if (strstr(t->tag, "qexpr"))  { x = lval_qexpr(); }
 
     for (int i = 0; i < t->children_num; i++) {
         if (strcmp(t->children[i]->contents, "(") == 0) { continue; }
@@ -198,17 +197,18 @@ lval* lval_eval_sexpr(lval* v) {
         return lval_err("S-expression does not start with a symbol");
     }
 
-    lval* result = builtin_op(v, f->sym);
+    lval* result = builtin(v, f->sym);
     lval_del(f);
     return result;
 }
 
-lval* lval_eval(lval*v) {
+lval* lval_eval(lval* v) {
     if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
     return v;
 }
 
 lval* builtin_op(lval* a, char* op) {
+
     for (int i = 0; i < a->count; i++) {
         if (a->cell[i]->type != LVAL_NUM) {
             lval_del(a);
@@ -239,7 +239,8 @@ lval* builtin_op(lval* a, char* op) {
         lval_del(y);
     }
 
-    lval_del(a); return x;
+    lval_del(a); 
+    return x;
 }
 
 lval* builtin_head(lval* a) {
@@ -282,6 +283,42 @@ lval* builtin_eval(lval* a) {
     return lval_eval(x);
 }
 
+lval* lval_join(lval* x, lval* y) {
+    while (y->count) {
+        x = lval_add(x, lval_pop(y, 0));
+    }
+
+    lval_del(y);
+    return x;
+}
+
+lval* builtin_join(lval* a) {
+    for (int i = 0; i < a->count; i++) {
+        LASSERT(a, a->cell[i]->type == LVAL_QEXPR, "Function 'join' passed incorrect type.");
+    }
+
+    lval* x = lval_pop(a, 0);
+
+    while (a->count) {
+        x = lval_join(x, lval_pop(a, 0));
+    }
+
+    lval_del(a);
+    return x;
+}
+
+lval* builtin(lval* a, char* func) {
+    if (strcmp("list", func) == 0) { return builtin_list(a); }
+    if (strcmp("head", func) == 0) { return builtin_head(a); }
+    if (strcmp("tail", func) == 0) { return builtin_tail(a); }
+    if (strcmp("join", func) == 0) { return builtin_join(a); }
+    if (strcmp("eval", func) == 0) { return builtin_eval(a); }
+    if (strstr("+-/*", func)) { return builtin_op(a, func); }
+    lval_del(a);
+    return lval_err("Unknown Function!");
+}
+
+
 int main(int argc, char** argv) {
     /* Create some parsers */
     mpc_parser_t* Number    = mpc_new("number");
@@ -295,7 +332,8 @@ int main(int argc, char** argv) {
     mpca_lang(MPCA_LANG_DEFAULT,
             "                                                     \
             number   : /-?[0-9]+/ ;                               \
-            symbol   : '+' | '-' | '*' | '/' ;                    \
+            symbol   : \"list\" | \"head\" | \"tail\" | \"eval\"  \
+                     | \"join\" | '+' | '-' | '*' | '/' ;         \
             sexpr    : '(' <expr>* ')' ;                          \
             qexpr    : '{' <expr>* '}' ;                          \
             expr     : <number> | <symbol> | <sexpr> | <qexpr> ;  \
@@ -320,8 +358,10 @@ int main(int argc, char** argv) {
         mpc_result_t r;
         if (mpc_parse("<stdin>", input, Lispy, &r)) {
             lval* x = lval_eval(lval_read(r.output));
+
             lval_println(x);
             lval_del(x);
+            mpc_ast_delete(r.output);
         } else {
             /* Otherwise Print the Error */
             mpc_err_print(r.output);
