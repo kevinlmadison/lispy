@@ -9,6 +9,7 @@
 #include <string.h>
 
 static char buffer[2048];
+// testing ssh keys
 
 /* Fake readline function */
 char* readline(char* prompt) {
